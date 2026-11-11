@@ -215,6 +215,7 @@ function add(jobIds) {
   writeJson(INDEX, index);
   mkdirSync(WORK, { recursive: true });
   writeJson(DONE, done);
+  console.log("Now sign the list for the game's other copies: node tools/sign-levels.mjs <private key PEM file>");
 }
 
 function reject(id, reason) {

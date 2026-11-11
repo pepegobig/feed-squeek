@@ -1480,22 +1480,34 @@ function addSwarmLevel(d){
   GALLERY.splice(GALLERY.length-1,0,{level:n,name:LEVELS[n].name,tag:'Swarm',hamsters:start,faster:'+'+Math.round((speed-1)*100)+'%',swarm:true});
   return true;
 }
-/* Every copy of the game shows the main site's swarm levels. The main site (MAIN_SITE) reads its own levels/. Any
-   other copy (feed-squeek-2638.imd.site, the Squeekchain listing) reads the main site's level list and level files
-   through a relay that adds CORS (SHARED_LEVELS; the IMD sites gateway sends none), so a level the main site publishes
-   appears on every copy at once. The copy hands those painters to painter.js in one script (a blob worker, which the
-   site's worker-src allows), so painter.js loads nothing itself. If the relay fails, the copy shows its own levels/. */
-const MAIN_SITE='https://feed-squeek.imd.site', SHARED_LEVELS='https://swarmcaster-lite-index.swarmderby.workers.dev/feed-squeek/levels/';
+/* Every copy of the game shows the main site's swarm levels. The main site (MAIN_SITE), and any address not in
+   COPY_SITES, reads its own levels/. A copy in COPY_SITES (feed-squeek-2638.imd.site, the Squeekchain listing) reads the
+   main site's level list and level files through a relay that adds CORS (SHARED_LEVELS; the IMD sites gateway sends
+   none), so a level the main site publishes appears there at once. It runs a relayed level only when levels/index.sig
+   verifies levels/index.json with LEVEL_KEY (the operator signs it with tools/sign-levels.mjs) and the level file
+   matches the SHA-256 the signed list gives for it. It then hands those painters to painter.js in one script (a blob
+   worker, which the site's worker-src allows). If anything fails, the copy shows its own levels/. */
+const MAIN_SITE='https://feed-squeek.imd.site', COPY_SITES=['https://feed-squeek-2638.imd.site'],
+  SHARED_LEVELS='https://swarmcaster-lite-index.swarmderby.workers.dev/feed-squeek/levels/',
+  LEVEL_KEY='MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEP0EdYWWIWMiGgbvgZXpoAlVy5ufGNUAnuJjXARVDRFHcu322uU1y8vmDMHYma/7lgL05RxSgFoSCYspumctmow==';
+const b64=t=>Uint8Array.from(atob(t.trim()),ch=>ch.charCodeAt(0));
+const hexOf=buf=>[...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
 async function sharedLevels(){
-  if(location.origin===MAIN_SITE)return null;
+  if(!COPY_SITES.includes(location.origin)||!(window.crypto&&crypto.subtle))return null;
   try{
-    const r=await fetch(SHARED_LEVELS+'index.json',{cache:'no-cache'}); if(!r.ok)return null;
-    const j=await r.json();
-    const list=(j&&Array.isArray(j.levels)?j.levels:[]).slice(0,60).filter(d=>d&&/^[a-z0-9-]{3,48}$/.test(d.id||''));
-    const [painter,...texts]=await Promise.all([fetch('painter.js').then(x=>x.ok?x.text():null).catch(()=>null),
-      ...list.map(d=>fetch(SHARED_LEVELS+d.id+'.js').then(x=>x.ok?x.text():null).catch(()=>null))]);
+    const get=name=>fetch(SHARED_LEVELS+name,{cache:'no-cache'}).then(r=>r.ok?r.arrayBuffer():Promise.reject(new Error(name)));
+    const [raw,sig]=await Promise.all([get('index.json'),get('index.sig')]);
+    const key=await crypto.subtle.importKey('spki',b64(LEVEL_KEY),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+    if(!await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,b64(new TextDecoder().decode(sig)),raw))return null;
+    const j=JSON.parse(new TextDecoder().decode(raw));
+    const list=(j&&Array.isArray(j.levels)?j.levels:[]).slice(0,60)
+      .filter(d=>d&&/^[a-z0-9-]{3,48}$/.test(d.id||'')&&/^[0-9a-f]{64}$/.test(d.sha256||''));
+    const [painter,...files]=await Promise.all([fetch('painter.js').then(x=>x.ok?x.text():null).catch(()=>null),
+      ...list.map(d=>get(d.id+'.js').catch(()=>null))]);
     if(!painter)return null;
-    const keep=list.filter((d,i)=>typeof texts[i]==='string'&&texts[i].length<=65536);
+    const texts=await Promise.all(files.map(async(b,i)=>b&&b.byteLength<=65536&&hexOf(await crypto.subtle.digest('SHA-256',b))===list[i].sha256
+      ?new TextDecoder().decode(b):null));
+    const keep=list.filter((d,i)=>texts[i]!==null);
     /* the level files run first and register through a stand-in; painter.js then takes their painters */
     const src=['var __levels={};self.FeedSqueek={level:function(d){if(d&&typeof d.id==="string")__levels[d.id]=d;}};',
       ...keep.map(d=>texts[list.indexOf(d)]+'\n;'), painter,
