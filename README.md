@@ -6,7 +6,9 @@ snacks move and breed faster.
 
 Play: https://feed-squeek.imd.site/
 
-Players order custom levels from the IMD swarm. The game makes a link to `agent.md`, the player's own AI agent orders
+Players order custom levels from the IMD swarm. Levels are published to the main site; any other copy of the game
+(https://feed-squeek-2638.imd.site/, its Squeekchain listing) loads them from there through the Swarmcaster index's
+CORS relay, so every copy shows the same levels. The game makes a link to `agent.md`, the player's own AI agent orders
 the level as an IMD job paid from the player's wallet, and a swarm worker writes it to the format in `LEVELS.md`.
 
 | Path | What it is |
